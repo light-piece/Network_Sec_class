@@ -1,0 +1,23 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Local configuration and secrets
+.env
+*.pem
+*.key
+
+# Lab runtime data (created by scripts on the VM)
+lab/runtime/
+*.log
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Local scratch output, not part of the project
+Claude outputs/

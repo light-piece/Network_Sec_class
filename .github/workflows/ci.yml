@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Unit tests
+        run: python -m pytest -q
+
+      - name: Check shell scripts
+        run: |
+          shopt -s nullglob
+          files=(scripts/*.sh tests/*.sh)
+          if [ ${#files[@]} -eq 0 ]; then echo "No shell scripts yet."; exit 0; fi
+          for f in "${files[@]}"; do bash -n "$f"; done
+          shellcheck "${files[@]}"
+
+      - name: Check dashboard JavaScript parses
+        run: for f in dashboard/js/*.js; do node --check "$f"; done
+
+  lab:
+    # The repo is public, so the free ARM runner is used (matches Isaac's Ubuntu ARM64 VM).
+    # If the repo becomes private, change this to ubuntu-24.04.
+    needs: unit
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      # Placeholder until milestone 2A adds scripts/install.sh and tests/integration.sh.
+      # It proves the runner supports what the lab design needs.
+      - name: Runner capability probe
+        run: |
+          set -euxo pipefail
+          uname -m
+          . /etc/os-release && echo "$PRETTY_NAME"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq nftables conntrack postgresql-client >/dev/null
+          nft --version
+
+          # Two namespaces joined by a veth pair, with a lab nftables table inside one of them.
+          sudo ip netns add ci-a
+          sudo ip netns add ci-b
+          sudo ip link add ci-va type veth peer name ci-vb
+          sudo ip link set ci-va netns ci-a
+          sudo ip link set ci-vb netns ci-b
+          sudo ip netns exec ci-a ip addr add 10.99.0.1/24 dev ci-va
+          sudo ip netns exec ci-b ip addr add 10.99.0.2/24 dev ci-vb
+          sudo ip netns exec ci-a ip link set ci-va up
+          sudo ip netns exec ci-b ip link set ci-vb up
+          sudo ip netns exec ci-a ip link set lo up
+          sudo ip netns exec ci-b ip link set lo up
+          sudo ip netns exec ci-a ping -c 1 -W 2 10.99.0.2
+
+          sudo ip netns exec ci-b nft add table inet lab
+          sudo ip netns exec ci-b nft 'add chain inet lab input { type filter hook input priority 0; policy accept; }'
+          sudo ip netns exec ci-b nft add rule inet lab input icmp type echo-request counter drop comment '"probe"'
+          if sudo ip netns exec ci-a ping -c 1 -W 2 10.99.0.2; then echo "nftables rule did not apply"; exit 1; fi
+          sudo ip netns exec ci-b nft -j -a list chain inet lab input
+          sudo ip netns exec ci-b conntrack -L >/dev/null 2>&1 || true
+
+          # The host firewall (Docker etc.) must not be affected by the namespace table.
+          sudo nft list tables
+
+          sudo ip netns del ci-a
+          sudo ip netns del ci-b
+          ls /usr/lib/postgresql 2>/dev/null || echo "PostgreSQL server not preinstalled (install.sh will add it)"
+          echo "Runner supports namespaces + nftables in a namespace."

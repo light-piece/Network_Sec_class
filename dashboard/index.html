@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Threat Containment Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <!-- Demo controls: simulation only, visually secondary -->
+  <div class="demo-bar">
+    <div class="demo-inner">
+      <span class="demo-label">DEMO MODE — SIMULATED DATA</span>
+      <span class="demo-status" id="demo-status">No scenario running</span>
+      <div class="demo-actions" role="group" aria-label="Simulation controls">
+        <label class="demo-speed">Speed
+          <select id="speed" data-key="speed">
+            <option value="slow">Presentation</option>
+            <option value="normal" selected>Normal</option>
+            <option value="fast">Fast</option>
+          </select>
+        </label>
+        <button type="button" class="demo-btn" data-action="startA" data-key="startA">Simulate A · fix works</button>
+        <button type="button" class="demo-btn" data-action="startB" data-key="startB">Simulate B · first fix fails</button>
+        <button type="button" class="demo-btn demo-btn-plain" data-action="reset" data-key="reset">Reset</button>
+      </div>
+    </div>
+  </div>
+
+  <header class="app-bar">
+    <div class="app-bar-inner">
+      <div class="brand">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5EEAD4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
+        <span>Threat Containment Console</span>
+      </div>
+      <span class="signed-in">Signed in as Network administrator</span>
+    </div>
+  </header>
+
+  <main id="app" class="page"></main>
+
+  <p class="footnote">Demo mode — simulated data. No real firewall, network, database or AI model calls are made.</p>
+
+  <!-- Load order matters: data/services first, then workflow, then view, then wiring. -->
+  <script src="js/config.js"></script>
+  <script src="js/mock-service.js"></script>
+  <script src="js/api-service.js"></script>
+  <script src="js/workflow.js"></script>
+  <script src="js/view.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

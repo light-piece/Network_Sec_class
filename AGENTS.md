@@ -1,13 +1,5 @@
-## Agent skills
+# Instructions for coding agents
 
-### Issue tracker
+Read [`CLAUDE.md`](CLAUDE.md). It holds the rules for this repository and points to the plan (`docs/DEVELOPMENT_PLAN.md`) and the progress log (`docs/STATUS.md`).
 
-Issues and specs are tracked in GitHub Issues. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-The repository uses the five default triage labels. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-This repository uses a single-context domain documentation layout. See `docs/agents/domain.md`.
+The files in `docs/archive/` describe an earlier design (OPNsense lab, September 2026). They are kept for reference only. **Do not follow them.**
