@@ -27,11 +27,14 @@ Use the grey demo bar at the top to run **Simulate A** (fix works) or **Simulate
 | `js/view.js` | Turns the current state into HTML. No logic, no network calls |
 | `js/main.js` | Connects them: picks the service, re-renders on every change, routes button clicks |
 
-## Connecting the real backend (week 2)
+## Mock mode and real mode
 
-1. Build FastAPI endpoints that return the shapes described at the top of `js/mock-service.js`.
-2. Adjust the paths in `js/api-service.js` to match your routes.
-3. Set `USE_MOCK: false` in `js/config.js`.
-4. Allow the dashboard's origin in FastAPI's CORS settings.
+`js/config.js` has `USE_MOCK: 'auto'`: at startup the dashboard asks `GET /api/status`.
 
-The workflow and the UI don't change; only the service does.
+- **Real mode** (the FastAPI backend serves the dashboard and answers): the bar shows **LIVE LAB**, **Run attack**
+  (`POST /api/lab/attack`, then the workflow starts and long-polls for the incident), **Reset lab**
+  (`POST /api/lab/reset`) and the AI model in use. Times are real; errors from the API are shown in the incident card
+  with a Reset button.
+- **Mock mode** (no backend, e.g. `python3 -m http.server` above): the simulated demo with Simulate A/B, speed and Reset.
+
+`USE_MOCK: true` or `false` forces a mode. The API is described in `docs/API_CONTRACT.md`.
