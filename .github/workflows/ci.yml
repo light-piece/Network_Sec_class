@@ -95,8 +95,19 @@ jobs:
       - name: Integration test (real lab)
         run: sudo tests/integration.sh
 
-      # Milestone 3 adds here: start the backend (sudo ./scripts/start.sh &), wait for
-      # GET /api/status, then tests/api_flow.sh for MOCK_AI_SCENARIO=A and B.
+      # Full workflow through the backend, the same calls the dashboard makes, for both
+      # mock-AI scenarios. start.sh brings the lab back up (integration.sh tore it down).
+      - name: API flow (backend + real lab, scenarios A and B)
+        run: |
+          set -euo pipefail
+          for S in A B; do
+            sudo MOCK_AI_SCENARIO=$S ./scripts/start.sh > "backend-$S.log" 2>&1 &
+            for i in $(seq 1 60); do curl -sf -m 5 http://127.0.0.1:8000/api/status >/dev/null && break; sleep 2; done
+            tests/api_flow.sh "$S"
+            sudo pkill -f "uvicorn backend.main:app" || true
+            sleep 2
+          done
+          sudo ./scripts/teardown_lab.sh
 
       - name: Collect lab diagnostics
         if: always()
@@ -109,7 +120,7 @@ jobs:
             echo; echo "## nft list tables (host, must not contain the lab table)"; sudo nft list tables || true
             echo; echo "## processes"; ps -eo pid,user,args | grep -E 'postgres|company_app|uvicorn' | grep -v grep || true
           } > lab-logs/state.txt 2>&1
-          sudo sh -c 'cp -r /var/lib/cybersec-lab/logs/. lab-logs/ 2>/dev/null; cp /var/lib/cybersec-lab/baseline.rendered.nft lab-logs/ 2>/dev/null; true'
+          sudo sh -c 'cp -r /var/lib/cybersec-lab/logs/. lab-logs/ 2>/dev/null; cp /var/lib/cybersec-lab/baseline.rendered.nft lab-logs/ 2>/dev/null; cp backend-*.log lab-logs/ 2>/dev/null; true'
           sudo chown -R "$(id -u):$(id -g)" lab-logs
           ls -la lab-logs
 

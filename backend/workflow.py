@@ -73,16 +73,8 @@ class IncidentState:
 
 
 def _load_validate() -> Callable:
-    """Agent C's validator, or the backend's stand-in if it is not merged yet."""
-    try:
-        from backend.ai.validate import validate  # type: ignore[import-not-found]
-        return validate
-    except ModuleNotFoundError as e:
-        if e.name != "backend.ai.validate":
-            raise
-        from backend.ai_fallback import standin_validate
-        log.warning("backend.ai.validate not found: using the backend's stand-in validator (ai_fallback.py)")
-        return standin_validate
+    from backend.ai.validate import validate
+    return validate
 
 
 class Workflow:

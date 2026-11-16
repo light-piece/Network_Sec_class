@@ -49,20 +49,12 @@ def make_lab(settings: Settings) -> Any:
         return FakeLab(addresses)
     from backend.lab import Lab  # real lab, Linux only; imported lazily
     return Lab(addresses, router_ns=settings.NS_ROUTER, employee_ns=settings.NS_EMPLOYEE,
-               app_ns=settings.NS_APP, db_ns=settings.NS_DB)
+               app_ns=settings.NS_APP, db_ns=settings.NS_DB,
+               db_name=settings.DB_NAME, db_user=settings.DB_USER)
 
 
 def make_provider(settings: Settings) -> Any:
-    """Agent C's provider factory, or the clearly-labelled stand-in if it is not merged yet."""
-    try:
-        from backend.ai.factory import get_provider  # type: ignore[import-not-found]
-    except ModuleNotFoundError as e:
-        if e.name != "backend.ai.factory":
-            raise
-        from backend.ai_fallback import StandInProvider
-        log.warning("backend.ai.factory not found: using the backend's STAND-IN AI (ai_fallback.py), "
-                    "not the real mock or Ollama")
-        return StandInProvider(settings.MOCK_AI_SCENARIO, settings.lab_addresses())
+    from backend.ai.factory import get_provider
     return get_provider(settings.AI_MODE, settings.MOCK_AI_SCENARIO, settings.OLLAMA_URL,
                         settings.OLLAMA_MODEL, settings.OLLAMA_TIMEOUT)
 
