@@ -12,18 +12,20 @@
   <!-- Demo controls: simulation only, visually secondary -->
   <div class="demo-bar">
     <div class="demo-inner">
-      <span class="demo-label">DEMO MODE — SIMULATED DATA</span>
+      <span class="demo-label" id="demo-label">DEMO MODE — SIMULATED DATA</span>
       <span class="demo-status" id="demo-status">No scenario running</span>
+      <span class="demo-status" id="demo-ai" hidden></span>
       <div class="demo-actions" role="group" aria-label="Simulation controls">
-        <label class="demo-speed">Speed
+        <label class="demo-speed" id="speed-control">Speed
           <select id="speed" data-key="speed">
             <option value="slow">Presentation</option>
             <option value="normal" selected>Normal</option>
             <option value="fast">Fast</option>
           </select>
         </label>
-        <button type="button" class="demo-btn" data-action="startA" data-key="startA">Simulate A · fix works</button>
-        <button type="button" class="demo-btn" data-action="startB" data-key="startB">Simulate B · first fix fails</button>
+        <button type="button" class="demo-btn" data-mode="mock" data-action="startA" data-key="startA">Simulate A · fix works</button>
+        <button type="button" class="demo-btn" data-mode="mock" data-action="startB" data-key="startB">Simulate B · first fix fails</button>
+        <button type="button" class="demo-btn" data-action="runAttack" data-key="runAttack" hidden>Run attack</button>
         <button type="button" class="demo-btn demo-btn-plain" data-action="reset" data-key="reset">Reset</button>
       </div>
     </div>
@@ -41,7 +43,7 @@
 
   <main id="app" class="page"></main>
 
-  <p class="footnote">Demo mode — simulated data. No real firewall, network, database or AI model calls are made.</p>
+  <p class="footnote" id="footnote">Demo mode — simulated data. No real firewall, network, database or AI model calls are made.</p>
 
   <!-- Load order matters: data/services first, then workflow, then view, then wiring. -->
   <script src="js/config.js"></script>
