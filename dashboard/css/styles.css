@@ -51,6 +51,7 @@ button:disabled { cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2.6s; } }
 
 /* ===== Demo bar (secondary) ===== */
+[hidden] { display: none !important; }
 .demo-bar { background: #E9EDF2; border-bottom: 1px dashed #98A2B3; }
 .demo-inner {
   max-width: 1320px; margin: 0 auto; padding: 6px 24px;

@@ -94,12 +94,13 @@ window.TCC = window.TCC || {};
   /* Which recommendation the simulated AI returns on each attempt. */
   var SEQUENCES = { A: ['good', 'alt'], B: ['flawed', 'fixed'] };
 
-  /* Check definitions (names and descriptions shown in the UI). */
+  /* Check definitions (names and descriptions shown in the UI, in both modes).
+     idle/running take the incident; pass/fail are only used by the mock service. */
   var CHECKS = {
     unauthorized_blocked: {
       name: 'Attacker path blocked',
-      idle: 'Try a direct connection from WS-FIN-042 to the database. Expected: refused.',
-      running: 'Trying a direct connection from WS-FIN-042 to the database…',
+      idle: function (inc) { return 'Try a direct connection from ' + inc.source.name + ' to the database. Expected: refused.'; },
+      running: function (inc) { return 'Trying a direct connection from ' + inc.source.name + ' to the database…'; },
       pass: function (rec) { return { detail: 'The direct connection from WS-FIN-042 was refused.', evidence: '10.20.0.42 → 10.30.0.10:5432 · refused by ' + rec.blockedBy }; },
       fail: function () { return { detail: 'WS-FIN-042 could still connect to the database directly.', evidence: '10.20.0.42 → 10.30.0.10:5432 · connection established' }; }
     },

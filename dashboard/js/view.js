@@ -17,6 +17,14 @@ window.TCC = window.TCC || {};
     var d = new Date(ts);
     return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
   }
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function day(ts) {
+    var d = new Date(ts);
+    return d.getDate() + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+  }
+  /* "Employee LAN 10.20.0.0/24" → "Employee LAN" */
+  function segmentName(host) { return String(host.segment || host.role || '').replace(/\s+\d+\.\d+\.\d+\.\d+\/\d+$/, ''); }
+  function port(inc) { return String(inc.connection.protocol || 'tcp').toLowerCase() + '/' + inc.connection.dstPort; }
   var SPIN = '<span class="spin" aria-hidden="true"></span>';
   function icon(glyph, spin) { return spin ? SPIN : (glyph ? '<span aria-hidden="true">' + esc(glyph) + '</span>' : ''); }
   function badge(tone, glyph, label, spin, extra) {
@@ -40,7 +48,8 @@ window.TCC = window.TCC || {};
       '<span class="empty-icon" aria-hidden="true"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg></span>' +
       '<h1>No active incidents</h1>' +
       '<p>Watching for connections that break segmentation policy. Intended path: employee → company application → database.</p>' +
-      '<p class="hint">Start a simulation from the demo bar at the top of the page.</p>' +
+      '<p class="hint">' + (TCC.mode === 'real' ? 'Use Run attack in the bar at the top of the page to start the lab attack.'
+        : 'Start a simulation from the demo bar at the top of the page.') + '</p>' +
       '</section>';
   }
   function detectingView() {
@@ -48,10 +57,27 @@ window.TCC = window.TCC || {};
       '<span>Analyzing a flagged network connection…</span></section>';
   }
 
+  /* ---------- errors (a service call failed) ---------- */
+  function errorAlert(msg) {
+    return '<div class="alert" role="alert"><span class="alert-mark" aria-hidden="true">✕</span><div>' +
+      '<div class="alert-title">The last step failed</div><p>' + esc(msg) + '</p></div></div>';
+  }
+  function errorCardView(s) {
+    return '<section class="card step-card tone-red" aria-labelledby="h-step" aria-live="polite">' +
+      '<div class="step-head"><div class="step-eyebrow-row"><span class="eyebrow">Error — the response stopped</span></div>' +
+      '<h2 id="h-step">Something went wrong</h2>' +
+      '<p class="step-sub">The system could not finish this step. Reset to start again from a clean state.</p></div>' +
+      '<div class="step-body">' + errorAlert(s.error) + '</div>' +
+      '<div class="action-bar"><p class="action-hint">' + esc(TCC.mode === 'real' ? 'Reset restores the lab firewall to its starting state.' : 'Reset clears the simulation.') + '</p>' +
+      '<div class="action-buttons"><button type="button" class="btn btn-primary" data-action="reset" data-key="primary">Reset</button></div></div>' +
+      '</section>';
+  }
+
   /* ---------- incident header + tracker ---------- */
   function headerView(s) {
-    var stage = s.stage;
-    var overall = stage === 'resolved' ? badge('green', '✓', 'Resolved', false, 'badge-lg')
+    var stage = s.stage, inc = s.incident;
+    var overall = s.error ? badge('red', '✕', 'Error', false, 'badge-lg')
+      : stage === 'resolved' ? badge('green', '✓', 'Resolved', false, 'badge-lg')
       : stage === 'failed' ? badge('red', '✕', 'Needs revision', false, 'badge-lg')
       : stage === 'awaiting' || stage === 'rejected' ? badge('amber', '!', 'Needs your action', false, 'badge-lg')
       : badge('blue', '', 'Automated response in progress', true, 'badge-lg');
@@ -75,13 +101,13 @@ window.TCC = window.TCC || {};
 
     return '<section class="card incident" aria-labelledby="h-incident">' +
       '<div class="incident-meta">' +
-        '<span class="mono incident-id">' + esc(TCC.MOCK_INCIDENT.id) + '</span><span aria-hidden="true">·</span>' +
-        '<span>Detected 25 Oct 2026, ' + clock(TCC.SIM_START) + '</span><span aria-hidden="true">·</span>' +
+        '<span class="mono incident-id">' + esc(inc.id) + '</span><span aria-hidden="true">·</span>' +
+        '<span>Detected ' + esc(day(s.times.detected)) + ', ' + clock(s.times.detected) + '</span><span aria-hidden="true">·</span>' +
         '<span>Unauthorized connectivity</span>' +
         '<span class="push">' + overall + '</span>' +
       '</div>' +
       '<h1 id="h-incident">Employee workstation connected directly to the company database</h1>' +
-      '<p class="lede">WS-FIN-042 bypassed the company application and opened a database connection, which a misconfigured firewall rule (#14) allowed. This is a policy violation; no data access has been observed or claimed.</p>' +
+      '<p class="lede">' + esc(inc.source.name) + ' bypassed the company application and opened a database connection, which a misconfigured firewall rule (#' + esc(inc.policy.ruleId) + ') allowed. This is a policy violation; no data access has been observed or claimed.</p>' +
       '<ol class="tracker" aria-label="Response progress">' + steps + '</ol>' +
       '</section>';
   }
@@ -101,16 +127,17 @@ window.TCC = window.TCC || {};
   function tilesView(s) {
     var c = s.containment, ub = s.checks.unauthorized_blocked.status, la = s.checks.legitimate_app.status;
     var version = s.rec ? s.rec.version : s.recs.length + 1;
+    var src = s.incident.source.name;
     var Q1 = 'Is the threat contained?', Q2 = 'Permanent correction', Q3 = 'Company application';
     var threat;
-    if (c === 'activating') threat = tile(Q1, 'blue', '', 'Blocking now…', 'Applying a temporary block to WS-FIN-042 only.', true);
-    else if (c === 'active') threat = tile(Q1, 'green', '✓', 'Yes — temporary block', 'WS-FIN-042 cannot reach the database directly. Its application access still works.');
+    if (c === 'activating') threat = tile(Q1, 'blue', '', 'Blocking now…', 'Applying a temporary block to ' + src + ' only.', true);
+    else if (c === 'active') threat = tile(Q1, 'green', '✓', 'Yes — temporary block', src + ' cannot reach the database directly. Its application access still works.');
     else if (c === 'lifting') threat = tile(Q1, 'blue', '', 'Testing permanent rule', 'Temporary block being removed on purpose for an independent test.', true);
     else if (c === 'lifted' && ub === 'passed') threat = tile(Q1, 'green', '✓', 'Yes — permanent rule', 'Confirmed with the temporary block removed.');
     else if (c === 'lifted') threat = tile(Q1, 'blue', '', 'Testing permanent rule', 'Temporary block removed on purpose; checking the new rule alone.', true);
     else if (c === 'restoring') threat = tile(Q1, 'blue', '', 'Restoring temporary block…', 'Re-applied automatically after the failed check.', true);
     else if (c === 'retired') threat = tile(Q1, 'green', '✓', 'Yes — permanent rule', 'Verified. The temporary block is no longer needed.');
-    else threat = tile(Q1, 'red', '✕', 'No — path is open', 'Rule #14 still allows the direct connection.');
+    else threat = tile(Q1, 'red', '✕', 'No — path is open', 'Rule #' + s.incident.policy.ruleId + ' still allows the direct connection.');
 
     var corr = {
       none: tile(Q2, 'gray', '○', 'Not started', 'Proposed by the AI after containment.'),
@@ -144,11 +171,12 @@ window.TCC = window.TCC || {};
       '<span class="check-time mono">' + (status === 'done' || status === 'failed' ? clock(time) : '') + '</span></li>';
   }
 
+  function text(v, inc) { return typeof v === 'function' ? v(inc) : v; }
   function checksView(s) {
     var ok = s.testedWithoutContainment;
     var rows = TCC.CHECK_IDS.map(function (id, i) {
       var r = s.checks[id], def = TCC.CHECKS[id];
-      var detail = r.status === 'running' ? def.running : r.status === 'not_tested' ? def.idle : r.detail;
+      var detail = r.status === 'running' ? text(def.running, s.incident) : r.status === 'not_tested' ? text(def.idle, s.incident) : r.detail;
       return '<div class="result is-' + r.status + '">' +
         '<div class="result-head"><span class="result-n">Check ' + (i + 1) + '</span><span class="result-name">' + esc(def.name) + '</span>' +
         '<span class="push">' + checkBadge(r.status) + '</span></div>' +
@@ -184,7 +212,7 @@ window.TCC = window.TCC || {};
         (rec.previousFailure ? '<p><strong>Previous result: </strong>' + esc(rec.previousFailure) + '</p>' : '') +
         '<p><strong>What changed: </strong>' + esc(rec.whatChanged) + '</p></div>';
     }
-    html += '<div class="rec"><div class="overline">AI recommendation · version ' + esc(rec.version) + ' · local model (simulated)</div>' +
+    html += '<div class="rec"><div class="overline">AI recommendation · version ' + esc(rec.version) + ' · ' + esc(rec.model) + '</div>' +
       '<p class="rec-summary">' + esc(rec.summary) + '</p></div>';
     html += summaryList([
       ['Rule change', esc(rec.change)],
@@ -206,7 +234,8 @@ window.TCC = window.TCC || {};
   }
 
   function stepCardView(s) {
-    var stage = s.stage, rec = s.rec, T = s.times, c = s.containment;
+    var stage = s.stage, rec = s.rec, T = s.times, c = s.containment, inc = s.incident, src = inc.source.name;
+    if (s.error) return errorCardView(s);
     var version = rec ? rec.version : s.recs.length + 1;
     var ub = s.checks.unauthorized_blocked.status, la = s.checks.legitimate_app.status;
     var tone = 'gray', eyebrow = 'Automated — no action needed', title = '', sub = '', body = '';
@@ -218,8 +247,8 @@ window.TCC = window.TCC || {};
       title = stage === 'containing' ? 'Containing the workstation' : (s.recs.length ? 'AI is drafting a revised recommendation' : 'AI is drafting a permanent fix');
       sub = 'The system is responding on its own. You will be asked to approve before any permanent firewall change.';
       body = '<ol class="checklist">' +
-        item('done', 'Unauthorized connection detected', T.detected, 'WS-FIN-042 → DB-PRIMARY-01, tcp/5432') +
-        item(c === 'activating' ? 'running' : 'done', 'Temporary block applied to WS-FIN-042 only', T.contained, 'Direct database access blocked; application access preserved') +
+        item('done', 'Unauthorized connection detected', T.detected, src + ' → ' + inc.target.name + ', ' + port(inc)) +
+        item(c === 'activating' ? 'running' : 'done', 'Temporary block applied to ' + src + ' only', T.contained, 'Direct database access blocked; application access preserved') +
         item(stage === 'recommending' ? 'running' : 'pending', s.recs.length ? 'AI drafts version ' + version : 'AI drafts a permanent fix', null,
           afterFailure ? 'Using the failed test results from version ' + s.lastFailure.version
             : last ? 'Looking for a different approach than version ' + last.version
@@ -240,7 +269,7 @@ window.TCC = window.TCC || {};
       sub = 'The workstation stays contained by the temporary block. Ask the AI for a different recommendation.';
       body = summaryList([
         ['Firewall', 'Unchanged. Version ' + esc(version) + ' was not applied.'],
-        ['Temporary block', 'Still active. WS-FIN-042 cannot reach the database directly.'],
+        ['Temporary block', 'Still active. ' + esc(src) + ' cannot reach the database directly.'],
         ['Rejected proposal', esc(rec.summary)]
       ]);
       bar = { hint: 'The new version will need your approval too.', primary: { label: 'Ask AI for another recommendation', action: 'requestAnother' } };
@@ -263,7 +292,7 @@ window.TCC = window.TCC || {};
       title = 'Version ' + f.version + ' failed a check';
       sub = done ? 'Recovery is complete. Send the results to the AI so it can draft a corrected version.' : 'Restoring the temporary block, then rolling back the change.';
       body = '<ol class="checklist">' +
-        item(rc.containment === 'done' ? 'done' : 'running', 'Restore temporary block on WS-FIN-042', T.restored) +
+        item(rc.containment === 'done' ? 'done' : 'running', 'Restore temporary block on ' + src, T.restored) +
         item(rc.rollback === 'done' ? 'done' : rc.rollback === 'running' ? 'running' : 'pending', 'Roll back version ' + f.version + ' so the application works again', T.rolledBack) +
         item('pending', 'Send results to the AI for a revised version', null, 'Your step — the revision needs a new approval') +
         '</ol>' +
@@ -316,7 +345,7 @@ window.TCC = window.TCC || {};
 
   /* ---------- right column: details + activity ---------- */
   function sideView(s) {
-    var c = s.containment, ub = s.checks.unauthorized_blocked.status;
+    var c = s.containment, ub = s.checks.unauthorized_blocked.status, inc = s.incident, cn = inc.connection;
     var appBadge = appIsBroken(s) ? badge('red', '✕', 'Broken by v' + s.rec.version) : badge('green', '✓', 'Allowed');
     var directBadge = c === 'active' ? badge('green', '✓', 'Blocked · temporary')
       : c === 'retired' || (c === 'lifted' && ub === 'passed') ? badge('green', '✓', 'Blocked · permanent rule')
@@ -335,15 +364,16 @@ window.TCC = window.TCC || {};
     return '<div class="side"><div class="side-inner">' +
       '<section class="card details" aria-labelledby="h-details"><h2 id="h-details">What happened</h2>' +
         '<div class="path"><div class="path-head"><span class="overline">Intended path</span><span class="push">' + appBadge + '</span></div>' +
-        '<div>Workstation → <strong>APP-01</strong> (application) → <strong>DB-PRIMARY-01</strong></div></div>' +
+        '<div>Workstation → <strong>' + esc(inc.app.name) + '</strong> (application) → <strong>' + esc(inc.target.name) + '</strong></div></div>' +
         '<div class="path"><div class="path-head"><span class="overline">Unauthorized path</span><span class="push">' + directBadge + '</span></div>' +
-        '<div><strong>WS-FIN-042</strong> → <strong>DB-PRIMARY-01</strong> directly, tcp/5432</div></div>' +
+        '<div><strong>' + esc(inc.source.name) + '</strong> → <strong>' + esc(inc.target.name) + '</strong> directly, ' + esc(port(inc)) + '</div></div>' +
         '<dl class="facts">' +
-          '<dt>Source</dt><dd>WS-FIN-042 · 10.20.0.42 (Employee LAN)</dd>' +
-          '<dt>Target</dt><dd>DB-PRIMARY-01 · 10.30.0.10 (PostgreSQL)</dd>' +
-          '<dt>Connection</dt><dd class="mono">10.20.0.42:51544 → 10.30.0.10:5432</dd>' +
-          '<dt>Cause</dt><dd>Rule #14 allows the whole Employee LAN to reach the database</dd>' +
-          '<dt>Seen by</dt><dd>Flow monitor, core switch</dd>' +
+          '<dt>Source</dt><dd>' + esc(inc.source.name) + ' · ' + esc(inc.source.ip) + ' (' + esc(segmentName(inc.source)) + ')</dd>' +
+          '<dt>Target</dt><dd>' + esc(inc.target.name) + ' · ' + esc(inc.target.ip) + ' (' + esc(cn.service) + ')</dd>' +
+          '<dt>Connection</dt><dd class="mono">' + esc(inc.source.ip) + (cn.srcPort != null ? ':' + esc(cn.srcPort) : '') +
+            ' → ' + esc(inc.target.ip) + ':' + esc(cn.dstPort) + '</dd>' +
+          '<dt>Cause</dt><dd>Rule #' + esc(inc.policy.ruleId) + ' allows the whole ' + esc(segmentName(inc.source)) + ' to reach the database</dd>' +
+          '<dt>Seen by</dt><dd>' + esc(cn.observedBy) + '</dd>' +
         '</dl></section>' +
       '<section class="card activity" aria-labelledby="h-time">' +
         '<div class="activity-head"><h2 id="h-time">Activity log</h2><span class="hint">Newest first · who did what</span></div>' +
@@ -353,12 +383,19 @@ window.TCC = window.TCC || {};
 
   /* ---------- public ---------- */
   TCC.renderApp = function (s) {
+    if (!s.incident && s.error) return errorCardView(s);
     if (s.stage === 'idle') return idleView();
     if (s.stage === 'detecting') return detectingView();
     return headerView(s) + tilesView(s) +
       '<div class="columns">' + stepCardView(s) + sideView(s) + '</div>';
   };
   TCC.demoStatus = function (s) {
+    if (TCC.mode === 'real') {
+      if (s.error) return 'Stopped by an error';
+      if (s.stage === 'idle') return 'Lab ready · no incident';
+      if (s.stage === 'detecting') return 'Waiting for the detector…';
+      return 'Incident ' + s.incident.id + (s.stage === 'resolved' ? ' resolved' : ' in progress');
+    }
     return s.scenario ? 'Running scenario ' + s.scenario + (s.scenario === 'A' ? ' (fix works)' : ' (first fix fails)') : 'No scenario running';
   };
 })(window.TCC);

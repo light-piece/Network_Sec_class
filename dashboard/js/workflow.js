@@ -20,14 +20,17 @@ window.TCC = window.TCC || {};
       correction: 'none',   // none | drafting | proposed | applying | applied | verified | failed | rolling_back | rolled_back | rejected
       rec: null, recs: [], showDetails: false,
       checks: blankChecks(), checksVersion: null, testedWithoutContainment: false,
-      recovery: null, lastFailure: null, timeline: [], times: {}
+      recovery: null, lastFailure: null, timeline: [], times: {},
+      error: null           // message shown in the incident card when a service call fails
     };
   }
 
   class IncidentWorkflow {
-    /* createService(scenario, speed) returns a MockResponseService or ApiResponseService */
-    constructor(createService) {
+    /* createService(scenario, speed) returns a MockResponseService or ApiResponseService.
+       options.realTime: use the real clock (real backend) instead of the simulated one. */
+    constructor(createService, options) {
       this.createService = createService;
+      this.realTime = !!(options && options.realTime);
       this.state = blankState();
       this.listeners = [];
       this.run = 0;
@@ -49,7 +52,7 @@ window.TCC = window.TCC || {};
       var self = this;
       return Promise.resolve(p).then(function (v) { if (run !== self.run) throw CANCELLED; return v; });
     }
-    now() { return TCC.SIM_START + (Date.now() - this.t0); }
+    now() { return this.realTime ? Date.now() : TCC.SIM_START + (Date.now() - this.t0); }
     mark(key) {
       var t = this.now();
       this.setState(function (s) { var x = Object.assign({}, s.times); x[key] = t; return { times: x }; });
@@ -59,7 +62,18 @@ window.TCC = window.TCC || {};
       this.setState(function (s) { return { timeline: [ev].concat(s.timeline) }; });
     }
     safely(fn) {
-      return fn().catch(function (e) { if (e !== CANCELLED) console.error(e); });
+      var run = this.run, self = this;
+      return fn().catch(function (e) {
+        if (e === CANCELLED) return;
+        console.error(e);
+        if (run === self.run) self.fail(e);
+      });
+    }
+    /* Show a failed service call in the incident card (with a Reset button). */
+    fail(e) {
+      var msg = (e && e.message) || String(e || 'Unknown error');
+      this.setState({ error: msg });
+      this.log('system', 'Error', msg);
     }
 
     /* ---------- demo controls ---------- */
@@ -76,12 +90,16 @@ window.TCC = window.TCC || {};
       return this.safely(async function () {
         var inc = await g(self.svc.getActiveIncident());
         self.t0 = Date.now();
-        self.setState({ incident: inc, stage: 'containing', containment: 'activating', times: { detected: TCC.SIM_START } });
-        self.log('system', 'Unauthorized connection detected', 'WS-FIN-042 → DB-PRIMARY-01 on tcp/5432, allowed by misconfigured rule #14.');
-        await g(self.svc.activateContainment(inc.id));
+        var detected = self.realTime ? (inc.detectedAt || Date.now()) : TCC.SIM_START;
+        self.setState({ incident: inc, stage: 'containing', containment: 'activating', times: { detected: detected } });
+        self.log('system', 'Unauthorized connection detected', inc.source.name + ' → ' + inc.target.name + ' on ' +
+          String(inc.connection.protocol).toLowerCase() + '/' + inc.connection.dstPort +
+          ', allowed by misconfigured rule #' + inc.policy.ruleId + '.');
+        var block = await g(self.svc.activateContainment(inc.id));
         self.setState({ containment: 'active' });
         self.mark('contained');
-        self.log('system', 'Temporary block applied', 'Rule T-1 blocks only WS-FIN-042 → database. Application access is unaffected.');
+        self.log('system', 'Temporary block applied', (block && block.ruleId ? 'Rule ' + block.ruleId : 'The temporary block') +
+          ' blocks only ' + inc.source.name + ' → database. Application access is unaffected.');
         await self.draft(run, null);
       });
     }
@@ -155,7 +173,7 @@ window.TCC = window.TCC || {};
           return { containment: 'active', correction: 'rolling_back', recovery: Object.assign({}, s.recovery, { containment: 'done', rollback: 'running' }) };
         });
         self.mark('restored');
-        self.log('system', 'Temporary block restored', 'WS-FIN-042 is blocked from the database again while the fix is revised.');
+        self.log('system', 'Temporary block restored', self.state.incident.source.name + ' is blocked from the database again while the fix is revised.');
         await g(self.svc.rollbackCorrection(incId, rec));
         self.setState(function (s) {
           return { correction: 'rolled_back', recovery: Object.assign({}, s.recovery, { rollback: 'done' }) };
