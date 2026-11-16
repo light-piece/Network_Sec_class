@@ -1,38 +1,47 @@
 # Project status
 
-*Agents on `main` update this file at the end of every session. Parallel agents (A, B, C) put their status in their PR description; the integration agent copies it here. Newest log entries first.*
+*Agents on `main` update this file at the end of every session. Newest log entries first.*
 
 Repo: https://github.com/light-piece/Network_Sec_class (public)
 
 ## Current state
 
-| Milestone | Owner | Status | Notes |
-|---|---|---|---|
-| 1 Repo and shared contracts | single agent | **Done, CI to confirm** | See log. Green CI run on `main` needed before step 2. |
-| 2A Lab | agent A (`lab` branch) | **Next** | Start after milestone 1's CI is green |
-| 2B Backend | agent B (`backend` branch) | **Next** | Can start immediately after 1 |
-| 2C AI + dashboard | agent C (`ai-dashboard` branch) | **Next** | Can start immediately after 1 |
-| 3 Integration | single agent on `main` | Not started | After A, B, C merged in that order |
-| 4 Handoff | single agent on `main` | Not started | Then Isaac's first run |
+| Milestone | Status | Notes |
+|---|---|---|
+| 1 Repo and shared contracts | **Done** | CI green on GitHub (2026-11-16) |
+| 2A Lab | **Done** | Verified in a root Linux container (x86_64); ARM runner pending CI |
+| 2B Backend | **Done** | |
+| 2C AI + dashboard | **Done** | |
+| 3 Integration | **Done, CI to confirm** | Full flow verified against the real lab locally |
+| 4 Handoff | **Next** | README run section, `docs/DEMO.md`, Isaac's first run with real Ollama |
 
-## Known facts
+## Verified (2026-11-16, Ubuntu 24.04 x86_64 container, root)
 
-- Dashboard: `dashboard/` (plain HTML/CSS/JS, mock mode works). `.claude/launch.json` serves it on port 8080.
-- No local Linux VM: Linux is tested only in GitHub Actions (`ubuntu-24.04-arm`, free for public repos).
-- Final demo machine: Isaac's Apple Silicon Mac, Ubuntu Server 24.04 ARM64 VM in UTM, Ollama with `qwen3:4b` on macOS.
-- Check IDs are `unauthorized_blocked` and `legitimate_app` (from the dashboard), not the names in early drafts of the plan.
-- A recommendation is 1–3 actions; the dashboard's four mock recommendations (`good`, `alt`, `flawed`, `fixed`) map to the action examples in `docs/LAB_INTERFACE.md`.
+- `python3 -m pytest -q`: **128 passed** (schema, fake lab, validator, mock AI, Ollama client with mocked HTTP, full API against the fake lab).
+- `CI=1 scripts/install.sh` twice: both runs clean; lab up; attacker reaches the database on the baseline.
+- `tests/integration.sh`: **3 rounds passed**: the expected-outcomes table in `docs/LAB_INTERFACE.md` holds on the real lab, plus snapshot/restore, reset and counter.
+- `tests/api_flow.sh A` and `B` against `scripts/start.sh` on the real lab: **both passed** (B: too-broad fix fails the app check → block restored → rollback → v2 with feedback passes).
+- Dashboard in headless Chromium against the real lab: scenarios A and B reach **Resolved**; real evidence shown (pg_isready no response after ~3 s; HTTP 200 with 25 records).
+- shellcheck clean; dashboard JS parses.
+
+## Not yet verified
+
+- GitHub Actions `lab` job on `ubuntu-24.04-arm` (needs the push).
+- Real AI: qwen3:4b via Ollama has only been tested with mocked HTTP. First real run is on Isaac's Mac.
+
+## Known behaviours
+
+- `/api/lab/reset` (or `scripts/reset_lab.sh`) between demo runs: after a resolved incident, a new attack can open a new incident because rule-14's counter keeps counting dropped packets when the fix sets it to drop.
+- `health()` and the checks take about 3 s when the database path is blocked (`pg_isready -t 3`); they are not on the 2 s poll.
+- `add_deny` with position `top` is placed directly after `est` in the real lab; `FakeLab` puts it at index 0. Display order differs only while the temporary block is on.
+- The real lab returns `/32` hosts as bare IPs (nft's format); FakeLab keeps `x/32`.
+- Lab state lives in `/var/lib/cybersec-lab` (one lab per machine). Everything runs as root.
 
 ## Blockers
 
-- None.
+- None. Pushing from the cloud session is not possible (GitHub not linked to Claude); uploads go through a script Sergio double-clicks.
 
 ## Log
 
-- **2026-11-15 · milestone 1.** Connected the project to GitHub. Moved Isaac's September OPNsense planning (AGENTS.md, CONTEXT.md, PDF, prototype, docs/agents) unchanged into `docs/archive/opnsense-plan-sep2026/`; new root `AGENTS.md` points to `CLAUDE.md`. Added `.gitignore`, README, `docs/API_CONTRACT.md`, `docs/LAB_INTERFACE.md`, `backend/lab_types.py`, `backend/fake_lab.py` (first-match rule evaluator), `backend/lab.py` (stub), `backend/ai/models.py`, `tests/test_models.py`, `tests/test_fake_lab.py` (22 tests, passing locally on Python 3.13), `requirements.txt`, `.github/workflows/ci.yml`. Plan updated: check IDs, multi-action recommendations, file ownership, dashboard fixes 6–8 (fake clock, error display, mock-only footnote), hard-coded text in `workflow.js`.
-  - **Not yet verified:** the CI run (needs the first push). The `lab` job is a capability probe: namespaces, veth, nftables inside a namespace, conntrack, on the ARM runner.
-- **2026-11-15 · plan finalized** (`docs/DEVELOPMENT_PLAN.md`).
-
-## Next step
-
-Push milestone 1, confirm both CI jobs are green, then start agents A, B and C (`docs/AGENT_PROMPTS.md`, Step 2).
+- **2026-11-16 · milestones 2 and 3.** Three agents built the lab (2A), the backend (2B) and the AI + dashboard work (2C) in parallel; merged into `main` in that order with no conflicts. Integration: backend uses the real AI factory and validator (stand-ins removed), real `Lab` gets DB settings, `tests/api_flow.sh` added, CI `lab` job now runs install twice, integration, and the API flow for A and B, then uploads diagnostics.
+- **2026-11-15 · milestone 1.** Repo connected; September OPNsense planning archived; contracts, stubs, tests and CI added.
