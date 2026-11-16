@@ -1,0 +1,11 @@
+add table inet lab
+delete table inet lab
+table inet lab {
+  chain forward {
+    type filter hook forward priority 0; policy drop;
+    ct state established,related accept comment "est"
+    ip saddr ${EMPLOYEE_NET} ip daddr ${APP_IP} tcp dport ${APP_SERVICE_PORT} accept comment "rule-10"
+    ip saddr ${APP_IP} ip daddr ${DB_IP} tcp dport ${DB_PORT} accept comment "rule-12"
+    ip saddr ${EMPLOYEE_NET} ip daddr ${DB_IP} tcp dport ${DB_PORT} counter accept comment "rule-14"
+  }
+}
