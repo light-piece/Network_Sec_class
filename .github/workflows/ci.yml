@@ -37,50 +37,86 @@ jobs:
       - name: Check dashboard JavaScript parses
         run: for f in dashboard/js/*.js; do node --check "$f"; done
 
+  changes:
+    # Decides whether the lab job is needed: only when lab-related files changed
+    # (always on manual runs). Dashboard-only or docs-only pushes run just `unit`.
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      lab: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.lab == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            lab:
+              - 'scripts/**'
+              - 'lab/**'
+              - 'backend/**'
+              - 'company_app/**'
+              - 'tests/**'
+              - 'requirements.txt'
+              - '.env.example'
+              - '.github/workflows/ci.yml'
+
   lab:
     # The repo is public, so the free ARM runner is used (matches Isaac's Ubuntu ARM64 VM).
-    # If the repo becomes private, change this to ubuntu-24.04.
-    needs: unit
-    runs-on: ubuntu-24.04-arm
+    # If the repo becomes private, change the matrix value to ubuntu-24.04 (x86); the
+    # scripts do not depend on the CPU architecture.
+    needs: [unit, changes]
+    if: needs.changes.outputs.lab == 'true'
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      # Placeholder until milestone 2A adds scripts/install.sh and tests/integration.sh.
-      # It proves the runner supports what the lab design needs.
-      - name: Runner capability probe
+      - name: Runner info
         run: |
-          set -euxo pipefail
           uname -m
           . /etc/os-release && echo "$PRETTY_NAME"
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq nftables conntrack postgresql-client >/dev/null
-          nft --version
+          ls /usr/lib/postgresql 2>/dev/null || echo "no PostgreSQL server preinstalled"
 
-          # Two namespaces joined by a veth pair, with a lab nftables table inside one of them.
-          sudo ip netns add ci-a
-          sudo ip netns add ci-b
-          sudo ip link add ci-va type veth peer name ci-vb
-          sudo ip link set ci-va netns ci-a
-          sudo ip link set ci-vb netns ci-b
-          sudo ip netns exec ci-a ip addr add 10.99.0.1/24 dev ci-va
-          sudo ip netns exec ci-b ip addr add 10.99.0.2/24 dev ci-vb
-          sudo ip netns exec ci-a ip link set ci-va up
-          sudo ip netns exec ci-b ip link set ci-vb up
-          sudo ip netns exec ci-a ip link set lo up
-          sudo ip netns exec ci-b ip link set lo up
-          sudo ip netns exec ci-a ping -c 1 -W 2 10.99.0.2
+      # Non-interactive, .env.example defaults (AI_MODE=mock). The runner has PostgreSQL
+      # installed but stopped and Docker's firewall rules loaded; install.sh must cope.
+      - name: install.sh (first run)
+        run: sudo CI=1 ./scripts/install.sh
 
-          sudo ip netns exec ci-b nft add table inet lab
-          sudo ip netns exec ci-b nft 'add chain inet lab input { type filter hook input priority 0; policy accept; }'
-          sudo ip netns exec ci-b nft add rule inet lab input icmp type echo-request counter drop comment '"probe"'
-          if sudo ip netns exec ci-a ping -c 1 -W 2 10.99.0.2; then echo "nftables rule did not apply"; exit 1; fi
-          sudo ip netns exec ci-b nft -j -a list chain inet lab input
-          sudo ip netns exec ci-b conntrack -L >/dev/null 2>&1 || true
+      - name: install.sh (second run, must be safe to rerun)
+        run: sudo CI=1 ./scripts/install.sh
 
-          # The host firewall (Docker etc.) must not be affected by the namespace table.
-          sudo nft list tables
+      # Expected-outcomes table from docs/LAB_INTERFACE.md against the real lab,
+      # setup/reset three times, then teardown.
+      - name: Integration test (real lab)
+        run: sudo tests/integration.sh
 
-          sudo ip netns del ci-a
-          sudo ip netns del ci-b
-          ls /usr/lib/postgresql 2>/dev/null || echo "PostgreSQL server not preinstalled (install.sh will add it)"
-          echo "Runner supports namespaces + nftables in a namespace."
+      # Milestone 3 adds here: start the backend (sudo ./scripts/start.sh &), wait for
+      # GET /api/status, then tests/api_flow.sh for MOCK_AI_SCENARIO=A and B.
+
+      - name: Collect lab diagnostics
+        if: always()
+        run: |
+          mkdir -p lab-logs
+          {
+            echo "## ip netns list"; sudo ip netns list || true
+            echo; echo "## nft list ruleset (router namespace)"
+            sudo ip netns exec router nft -a list ruleset 2>&1 || echo "(router namespace not present)"
+            echo; echo "## nft list tables (host, must not contain the lab table)"; sudo nft list tables || true
+            echo; echo "## processes"; ps -eo pid,user,args | grep -E 'postgres|company_app|uvicorn' | grep -v grep || true
+          } > lab-logs/state.txt 2>&1
+          sudo sh -c 'cp -r /var/lib/cybersec-lab/logs/. lab-logs/ 2>/dev/null; cp /var/lib/cybersec-lab/baseline.rendered.nft lab-logs/ 2>/dev/null; true'
+          sudo chown -R "$(id -u):$(id -g)" lab-logs
+          ls -la lab-logs
+
+      - name: Upload lab diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-logs-${{ matrix.runner }}
+          path: lab-logs/
+          if-no-files-found: warn
